@@ -82,14 +82,8 @@ export function useChatManager() {
     };
 
     setChats(prev => [newChat, ...prev]);
+    // Set currentChatId so the chat becomes active
     setCurrentChatId(newChat.id);
-    
-    // Force update localStorage immediately
-    try {
-      localStorage.setItem(CURRENT_CHAT_KEY, newChat.id);
-    } catch (error) {
-      console.error("Error saving current chat to localStorage:", error);
-    }
     
     return newChat.id;
   }, []);

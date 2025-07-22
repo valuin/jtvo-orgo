@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import { MarkdownContent } from "@/components/ui/markdown-content";
+import { EnhancedContent } from "@/components/ui/enhanced-content";
 import { type VariantProps, cva } from "class-variance-authority";
 import { SparklesIcon, UserIcon } from "lucide-react";
 import React, { type ReactNode } from "react";
@@ -181,13 +182,22 @@ const ChatMessageContent = React.forwardRef<
 	const type = context?.type ?? "incoming";
 	const id = idProp ?? context?.id ?? "";
 
+	// Use EnhancedContent for assistant messages, MarkdownContent for user messages
+	const isAssistantMessage = type === "incoming";
+
 	return (
 		<div
 			ref={ref}
 			className={cn(chatMessageContentVariants({ variant, type, className }))}
 			{...props}
 		>
-			{content.length > 0 && <MarkdownContent id={id} content={content} />}
+			{content.length > 0 && (
+				isAssistantMessage ? (
+					<EnhancedContent content={content} id={id} />
+				) : (
+					<MarkdownContent id={id} content={content} />
+				)
+			)}
 			{children}
 		</div>
 	);

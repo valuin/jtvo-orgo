@@ -1,38 +1,26 @@
 "use client";
 
-import { SidebarApp } from "@/components/sidebar-app";
 import { Chat } from "@/components/chat";
-import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { useChatManager } from "@/hooks/use-chat-manager";
-import { useEffect } from "react";
-import { notFound } from "next/navigation";
+import { useEffect, useState } from "react";
 
-export default function ChatPage({ params }: { params: { chatId: string } }) {
-  const { selectChat, currentChatId } = useChatManager();
+export default function ChatPage({ params }: { params: Promise<{ chatId: string }> }) {
+  const { selectChat } = useChatManager();
+  const [resolvedParams, setResolvedParams] = useState<{ chatId: string } | null>(null);
 
   useEffect(() => {
-    if (params.chatId && params.chatId !== currentChatId) {
-      selectChat(params.chatId);
-    }
-  }, [params.chatId, currentChatId, selectChat]);
+    params.then(setResolvedParams);
+  }, [params]);
 
-  if (!params.chatId) {
-    notFound();
+  useEffect(() => {
+    if (resolvedParams?.chatId) {
+      selectChat(resolvedParams.chatId);
+    }
+  }, [resolvedParams?.chatId, selectChat]);
+
+  if (!resolvedParams?.chatId) {
+    return <div className="flex items-center justify-center h-screen">Loading...</div>;
   }
 
-  return (
-    <SidebarProvider>
-      <SidebarApp />
-      <SidebarInset>
-        <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
-          <div className="flex items-center gap-2 px-4">
-            <h1 className="text-lg font-semibold">
-              {currentChatId === params.chatId ? "Chat" : "Loading..."}
-            </h1>
-          </div>
-        </header>
-        <Chat />
-      </SidebarInset>
-    </SidebarProvider>
-  );
+  return <Chat />;
 }

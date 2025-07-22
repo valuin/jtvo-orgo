@@ -10,13 +10,14 @@ import {
 	ChatMessageContent,
 } from "@/components/ui/chat-message";
 import { ChatMessageArea } from "@/components/ui/chat-message-area";
+import { MessageLoading } from "@/components/ui/message-loading";
 import { useChat } from "ai/react";
 import type { ComponentPropsWithoutRef } from "react";
 import { useChatManager } from "@/hooks/use-chat-manager";
 import { useEffect } from "react";
 
 export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
-	const { currentChat, updateChatMessages, updateChatTitle, createNewChat } = useChatManager();
+	const { currentChat, updateChatMessages, updateChatTitle, createNewChat, selectChat } = useChatManager();
 	
 	const { messages, input, handleInputChange, handleSubmit, isLoading, stop, setMessages } =
 		useChat({
@@ -29,45 +30,47 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 
 	// Update chat messages when messages change (but not when currentChat changes)
 	useEffect(() => {
-		if (currentChat && messages.length > 0) {
-			// Only update if messages are different from stored messages
-			const messagesChanged = JSON.stringify(messages) !== JSON.stringify(currentChat.messages);
-			if (messagesChanged) {
-				updateChatMessages(currentChat.id, messages);
-				
-				// Auto-generate title from first user message if chat title is "New Chat"
-				if (currentChat.title === "New Chat") {
-					const firstUserMessage = messages.find(m => m.role === "user");
-					if (firstUserMessage) {
-						const title = firstUserMessage.content.slice(0, 50) + (firstUserMessage.content.length > 50 ? "..." : "");
-						updateChatTitle(currentChat.id, title);
-					}
-				}
-			}
-		}
+	  if (currentChat && messages.length > 0) {
+	    // Only update if messages are different from stored messages
+	    const messagesChanged = JSON.stringify(messages) !== JSON.stringify(currentChat.messages);
+	    if (messagesChanged) {
+	      updateChatMessages(currentChat.id, messages);
+	      
+	      // Auto-generate title from first user message if chat title is "New Chat"
+	      if (currentChat.title === "New Chat") {
+	        const firstUserMessage = messages.find(m => m.role === "user");
+	        if (firstUserMessage) {
+	          const title = firstUserMessage.content.slice(0, 50) + (firstUserMessage.content.length > 50 ? "..." : "");
+	          updateChatTitle(currentChat.id, title);
+	        }
+	      }
+	    }
+	  }
 	}, [messages, currentChat?.id]); // Add currentChat.id to prevent cross-contamination
 
 	// Load current chat messages when chat changes
 	useEffect(() => {
-		if (currentChat) {
-			// Always set messages when switching chats to ensure proper loading
-			setMessages(currentChat.messages);
-		} else {
-			setMessages([]);
-		}
+	  if (currentChat) {
+	    // Always set messages when switching chats to ensure proper loading
+	    setMessages(currentChat.messages);
+	  } else {
+	    setMessages([]);
+	  }
 	}, [currentChat?.id, setMessages]); // Include setMessages as it's stable
 
 	const handleSubmitMessage = () => {
-		if (isLoading) {
-			return;
-		}
-		
-		// Create new chat if none exists
-		if (!currentChat) {
-			createNewChat();
-		}
-		
-		handleSubmit();
+	  if (isLoading) {
+	    return;
+	  }
+	  
+	  // Create new chat if none exists
+	  if (!currentChat) {
+	    const newChatId = createNewChat();
+	    // Select the newly created chat
+	    selectChat(newChatId);
+	  }
+	  
+	  handleSubmit();
 	};
 
 	// Show empty state when no chat is selected
@@ -90,7 +93,7 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 							/>
 						</svg>
 					</div>
-					<h3 className="text-lg font-semibold mb-2">Welcome to simple-ai</h3>
+					<h3 className="text-lg font-semibold mb-2">Welcome to JTVO x ORGO</h3>
 					<p className="text-sm mb-4">
 						Start a conversation by clicking the "New Chat" button in the sidebar or type a message below.
 					</p>
@@ -120,26 +123,36 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 							<p>No messages yet. Start the conversation!</p>
 						</div>
 					) : (
-						messages.map((message) => {
-							if (message.role !== "user") {
+						<>
+							{messages.map((message) => {
+								if (message.role !== "user") {
+									return (
+										<ChatMessage key={message.id} id={message.id}>
+											<ChatMessageAvatar />
+											<ChatMessageContent content={message.content} />
+										</ChatMessage>
+									);
+								}
 								return (
-									<ChatMessage key={message.id} id={message.id}>
-										<ChatMessageAvatar />
+									<ChatMessage
+										key={message.id}
+										id={message.id}
+										variant="bubble"
+										type="outgoing"
+									>
 										<ChatMessageContent content={message.content} />
 									</ChatMessage>
 								);
-							}
-							return (
-								<ChatMessage
-									key={message.id}
-									id={message.id}
-									variant="bubble"
-									type="outgoing"
-								>
-									<ChatMessageContent content={message.content} />
+							})}
+							{isLoading && (
+								<ChatMessage id="loading">
+									<ChatMessageAvatar />
+									<div className="flex items-center justify-center p-4">
+										<MessageLoading />
+									</div>
 								</ChatMessage>
-							);
-						})
+							)}
+						</>
 					)}
 				</div>
 			</ChatMessageArea>
