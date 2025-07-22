@@ -115,7 +115,7 @@ export function DisclosureTrigger({
     <>
       {React.Children.map(children, (child) => {
         return React.isValidElement(child)
-          ? React.cloneElement(child, {
+          ? React.cloneElement(child as React.ReactElement<any>, {
               onClick: toggle,
               role: 'button',
               'aria-expanded': open,
@@ -128,9 +128,9 @@ export function DisclosureTrigger({
               },
               className: cn(
                 className,
-                (child as React.ReactElement).props.className
+                (child as React.ReactElement<{ className?: string }>).props.className
               ),
-              ...(child as React.ReactElement).props,
+              ...(child as React.ReactElement<{ className?: string }>).props,
             })
           : child;
       })}
