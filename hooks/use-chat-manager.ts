@@ -1,13 +1,13 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import type { Message } from "ai";
+import type { UIMessage } from "ai";
 
 export interface Chat {
   id: string;
   title: string;
   createdAt: Date;
   updatedAt: Date;
-  messages: Message[];
+  messages: UIMessage[];
 }
 
 export interface ChatGroup {
@@ -96,7 +96,7 @@ export function useChatManager() {
     ));
   }, []);
 
-  const updateChatMessages = useCallback((chatId: string, messages: Message[]) => {
+  const updateChatMessages = useCallback((chatId: string, messages: UIMessage[]) => {
     setChats(prev => {
       const chat = prev.find(c => c.id === chatId);
       if (chat && JSON.stringify(chat.messages) !== JSON.stringify(messages)) {

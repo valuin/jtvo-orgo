@@ -101,7 +101,7 @@ export async function POST(req: Request) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": "Bearer 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",
+      "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
     },
     body: JSON.stringify({
       model: "gpt-4o-mini",

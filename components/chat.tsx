@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/chat-message";
 import { ChatMessageArea } from "@/components/ui/chat-message-area";
 import { MessageLoading } from "@/components/ui/message-loading";
-import { useChat } from "ai/react";
+import { useChat } from '@ai-sdk/react';
 import type { ComponentPropsWithoutRef } from "react";
 import { useChatManager } from "@/hooks/use-chat-manager";
 import { useEffect } from "react";
