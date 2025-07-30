@@ -31,7 +31,7 @@
     "remark-gfm": "^4.0.1",
     "shiki": "^3.8.1",
     "tailwind-merge": "^3.3.1",
-    "zod": "3.25.76"
+    "zod": "^4.0.14"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.1",

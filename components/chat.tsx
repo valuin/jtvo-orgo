@@ -14,19 +14,28 @@ import { MessageLoading } from "@/components/ui/message-loading";
 import { useChat } from '@ai-sdk/react';
 import type { ComponentPropsWithoutRef } from "react";
 import { useChatManager } from "@/hooks/use-chat-manager";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { DefaultChatTransport } from 'ai';
 
 export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 	const { currentChat, updateChatMessages, updateChatTitle, createNewChat, selectChat } = useChatManager();
 	
-	const { messages, input, handleInputChange, handleSubmit, isLoading, stop, setMessages } =
+	const { messages, sendMessage, status, stop, setMessages } =
 		useChat({
-			api: "/api/ai/chat",
-			initialMessages: currentChat?.messages || [],
+			transport: new DefaultChatTransport({
+				api: "/api/ai/chat",
+			}),
 			onFinish: (message) => {
 				console.log("Message finished:", message);
 			},
 		});
+
+	const [input, setInput] = useState('');
+	const isLoading = status === 'submitted' || status === 'streaming';
+
+	const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+		setInput(e.target.value);
+	};
 
 	// Update chat messages when messages change (but not when currentChat changes)
 	useEffect(() => {
@@ -40,7 +49,8 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 	      if (currentChat.title === "New Chat") {
 	        const firstUserMessage = messages.find(m => m.role === "user");
 	        if (firstUserMessage) {
-	          const title = firstUserMessage.content.slice(0, 50) + (firstUserMessage.content.length > 50 ? "..." : "");
+	          const content = firstUserMessage.parts.map(p => p.type === 'text' ? p.text : '').join('');
+	          const title = content.slice(0, 50) + (content.length > 50 ? "..." : "");
 	          updateChatTitle(currentChat.id, title);
 	        }
 	      }
@@ -58,19 +68,25 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 	  }
 	}, [currentChat?.id, setMessages]); // Include setMessages as it's stable
 
-	const handleSubmitMessage = () => {
-	  if (isLoading) {
-	    return;
-	  }
-	  
-	  // Create new chat if none exists
-	  if (!currentChat) {
-	    const newChatId = createNewChat();
-	    // Select the newly created chat
-	    selectChat(newChatId);
-	  }
-	  
-	  handleSubmit();
+	const submitMessage = () => {
+		if (!input.trim()) return;
+
+		let chatId = currentChat?.id;
+		if (!chatId) {
+			chatId = createNewChat();
+			selectChat(chatId);
+		}
+		
+		sendMessage({
+			role: 'user',
+			parts: [{ type: 'text', text: input }]
+		});
+		setInput('');
+	};
+
+	const handleSubmitMessage = (e: React.FormEvent<HTMLFormElement>) => {
+		e.preventDefault();
+		submitMessage();
 	};
 
 	// Show empty state when no chat is selected
@@ -99,16 +115,18 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 					</p>
 				</div>
 				<div className="px-2 py-4 max-w-2xl mx-auto w-full">
-					<ChatInput
-						value={input}
-						onChange={handleInputChange}
-						onSubmit={handleSubmitMessage}
-						loading={isLoading}
-						onStop={stop}
-					>
-						<ChatInputTextArea placeholder="Start a new conversation..." />
-						<ChatInputSubmit />
-					</ChatInput>
+					<form onSubmit={handleSubmitMessage} className="w-full">
+						<ChatInput
+							value={input}
+							onChange={handleInputChange}
+							onSubmit={submitMessage}
+							loading={isLoading}
+							onStop={stop}
+						>
+							<ChatInputTextArea placeholder="Start a new conversation..." />
+							<ChatInputSubmit />
+						</ChatInput>
+					</form>
 				</div>
 			</div>
 		);
@@ -129,7 +147,7 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 									return (
 										<ChatMessage key={message.id} id={message.id}>
 											<ChatMessageAvatar />
-											<ChatMessageContent content={message.content} />
+											<ChatMessageContent content={message.parts.map(p => p.type === 'text' ? p.text : '').join('')} />
 										</ChatMessage>
 									);
 								}
@@ -140,7 +158,7 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 										variant="bubble"
 										type="outgoing"
 									>
-										<ChatMessageContent content={message.content} />
+										<ChatMessageContent content={message.parts.map(p => p.type === 'text' ? p.text : '').join('')} />
 									</ChatMessage>
 								);
 							})}
@@ -157,16 +175,18 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 				</div>
 			</ChatMessageArea>
 			<div className="px-2 py-4 max-w-2xl mx-auto w-full">
-				<ChatInput
-					value={input}
-					onChange={handleInputChange}
-					onSubmit={handleSubmitMessage}
-					loading={isLoading}
-					onStop={stop}
-				>
-					<ChatInputTextArea placeholder="Type a message..." />
-					<ChatInputSubmit />
-				</ChatInput>
+				<form onSubmit={handleSubmitMessage} className="w-full">
+					<ChatInput
+						value={input}
+						onChange={handleInputChange}
+						onSubmit={submitMessage}
+						loading={isLoading}
+						onStop={stop}
+					>
+						<ChatInputTextArea placeholder="Type a message..." />
+						<ChatInputSubmit />
+					</ChatInput>
+				</form>
 			</div>
 		</div>
 	);

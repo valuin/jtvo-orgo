@@ -10,20 +10,24 @@ interface EnhancedContentProps {
 
 export function EnhancedContent({ content, id }: EnhancedContentProps) {
   // Check if content contains progressive todos
-  const progressiveTodosRegex = new RegExp('<PROGRESSIVE_TODOS>\\n([\\s\\S]*?)\\n</PROGRESSIVE_TODOS>');
+  const progressiveTodosRegex = /<PROGRESSIVE_TODOS>([\s\S]*?)<\/PROGRESSIVE_TODOS>/;
   const progressiveTodosMatch = content.match(progressiveTodosRegex);
   
   let todosData = null;
   let remainingContent = content;
   
-  if (progressiveTodosMatch) {
+  if (progressiveTodosMatch && progressiveTodosMatch[1]) {
     try {
-      todosData = JSON.parse(progressiveTodosMatch[1]);
-      // Remove the progressive todos section from the content
-      const replaceRegex = new RegExp('<PROGRESSIVE_TODOS>[\\s\\S]*?</PROGRESSIVE_TODOS>\\n\\n');
-      remainingContent = content.replace(replaceRegex, "");
+      // Trim potential whitespace and newlines before parsing
+      const jsonData = progressiveTodosMatch[1].trim();
+      todosData = JSON.parse(jsonData);
+      
+      // Remove the progressive todos section from the content for cleaner display
+      remainingContent = content.replace(progressiveTodosRegex, "").trim();
     } catch (error) {
-      console.error("Failed to parse progressive todos:", error);
+      console.error("Failed to parse progressive todos JSON:", error);
+      // Keep original content if parsing fails
+      remainingContent = content;
     }
   }
   
