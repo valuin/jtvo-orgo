@@ -47,7 +47,7 @@ export function ProgressiveTodos({ enhanced_prompt, todos }: ProgressiveTodosPro
         
         return newCompleted;
       });
-    }, 10000);
+    }, 2000);
 
     return () => clearInterval(interval);
   }, [todos]);

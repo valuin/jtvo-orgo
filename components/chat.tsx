@@ -14,7 +14,7 @@ import { MessageLoading } from "@/components/ui/message-loading";
 import { useChat } from '@ai-sdk/react';
 import type { ComponentPropsWithoutRef } from "react";
 import { useChatManager } from "@/hooks/use-chat-manager";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DefaultChatTransport } from 'ai';
 import { ProgressiveTodos } from "@/components/ui/progressive-todos";
 
@@ -30,6 +30,8 @@ type ToolCallArgs = {
 };
 
 export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
+	const processedToolCalls = useRef(new Set<string>());
+
 	const { currentChat, updateChatMessages, updateChatTitle, createNewChat, selectChat } = useChatManager();
 	
 	const { messages, sendMessage, status, stop, setMessages, addToolResult } =
@@ -42,15 +44,39 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 				if (meta) {
 					console.log('[useChat] usage', meta.usage, 'finishReason', meta.finishReason);
 				}
+				if (meta?.finishReason === 'tool-calls') {
+					stop();
+				}
 			},
-			onToolCall: async ({ toolCall }: { toolCall: any }) => {
+			onToolCall: ({ toolCall }: { toolCall: any }) => {
 				console.log('[useChat] onToolCall received', JSON.stringify(toolCall, null, 2));
-				// For verification only; do not return a result so the call remains a UI event.
+
+				const toolCallId =
+					toolCall?.toolCallId ?? toolCall?.id ?? toolCall?.callId ?? undefined;
+
+				if (toolCallId && toolCall.toolName && !processedToolCalls.current.has(toolCallId)) {
+					console.log('[useChat] Processing new tool call:', toolCallId);
+					processedToolCalls.current.add(toolCallId);
+					addToolResult({
+						tool: toolCall.toolName,
+						toolCallId,
+						output: { ok: true, acknowledged: true },
+					});
+				} else {
+					if (!toolCallId) {
+						console.warn('[useChat] Missing toolCallId, cannot resolve');
+					} else if (!toolCall.toolName) {
+						console.warn('[useChat] Missing toolName, cannot resolve for call:', toolCallId);
+					} else {
+						console.log('[useChat] Skipping already processed tool call:', toolCallId);
+					}
+				}
 			},
 		});
 
 	const [input, setInput] = useState('');
 	const isLoading = status === 'submitted' || status === 'streaming';
+
 
 	const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
 		setInput(e.target.value);
@@ -105,33 +131,50 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 		});
 	};
 
-	// Update chat messages when messages change (but not when currentChat changes)
+	// Load messages from the manager only when the chat ID changes.
 	useEffect(() => {
-	  if (currentChat && messages.length > 0) {
-	    const messagesChanged = JSON.stringify(messages) !== JSON.stringify(currentChat.messages);
-	    if (messagesChanged) {
-	      updateChatMessages(currentChat.id, messages);
-	      
-	      if (currentChat.title === "New Chat") {
-	        const firstUserMessage = messages.find(m => m.role === "user");
-	        if (firstUserMessage) {
-	          const content = firstUserMessage.parts.map((p: any) => p.type === 'text' ? p.text : '').join('');
-	          const title = content.slice(0, 50) + (content.length > 50 ? "..." : "");
-	          updateChatTitle(currentChat.id, title);
-	        }
-	      }
-	    }
-	  }
-	}, [messages, currentChat?.id]);
-
-	// Load current chat messages when chat changes
-	useEffect(() => {
-	  if (currentChat) {
-	    setMessages(currentChat.messages);
-	  } else {
-	    setMessages([]);
-	  }
+		if (currentChat) {
+			setMessages(currentChat.messages);
+		} else {
+			setMessages([]);
+		}
 	}, [currentChat?.id, setMessages]);
+
+	// Persist messages to the manager when the conversation is finished.
+	useEffect(() => {
+		if (!isLoading && currentChat?.id && messages.length > 0) {
+			const messagesChanged = JSON.stringify(messages) !== JSON.stringify(currentChat.messages);
+			if (messagesChanged) {
+				console.log(`[Chat] Persisting ${messages.length} messages for chat ID: ${currentChat.id}`);
+				updateChatMessages(currentChat.id, messages);
+
+				if (currentChat.title === "New Chat") {
+					const firstUserMessage = messages.find(m => m.role === "user");
+					if (firstUserMessage) {
+						const content = firstUserMessage.parts.map((p: any) => p.type === 'text' ? p.text : '').join('');
+						const title = content.slice(0, 50) + (content.length > 50 ? "..." : "");
+						updateChatTitle(currentChat.id, title);
+					}
+				}
+			}
+		}
+	}, [status, messages, currentChat, updateChatMessages, updateChatTitle]);
+
+	// Remove protocol-specific parts so the API doesn't see prior tool/meta parts.
+	const sanitizeForSend = (msgs: any[]) =>
+		msgs.map(m => ({
+			...m,
+			parts: (m.parts || []).filter((p: any) => {
+				if (!p?.type) return true;
+				const t = String(p.type);
+				return !(
+					t === 'tool' ||
+					t === 'tool-call' ||
+					t === 'step-start' ||
+					t.startsWith('tool-')
+				);
+			})
+		}));
 
 	const submitMessage = () => {
 		if (!input.trim()) return;
@@ -141,11 +184,12 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 			chatId = createNewChat();
 			selectChat(chatId);
 		}
-		
-		sendMessage({
-			role: 'user',
-			parts: [{ type: 'text', text: input }]
-		});
+
+		// SDK v5 sendMessage does not accept overriding the history.
+		// We rely on addToolResult to resolve tool calls.
+		// Keep sanitizeForSend for potential future use or if you decide to
+		// pre-clean messages before persisting/sending elsewhere.
+		sendMessage({ role: 'user', parts: [{ type: 'text', text: input }] });
 		setInput('');
 	};
 
