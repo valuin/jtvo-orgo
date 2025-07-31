@@ -14,126 +14,35 @@ import { MessageLoading } from "@/components/ui/message-loading";
 import { useChat } from '@ai-sdk/react';
 import type { ComponentPropsWithoutRef } from "react";
 import { useChatManager } from "@/hooks/use-chat-manager";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { DefaultChatTransport } from 'ai';
-import { ProgressiveTodos } from "@/components/ui/progressive-todos";
-
-type ToolCallArgs = {
-	enhanced_prompt?: string;
-	todos?: Array<{
-		id: string;
-		description: string;
-		action: string;
-		details?: Record<string, any>;
-		validation?: Record<string, any>;
-	}>;
-};
+import { OrgoAction, ProgressiveTodos } from "@/components/ui/progressive-todos";
+import Image from "next/image";
 
 export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
-	const processedToolCalls = useRef(new Set<string>());
-	const [screenshots, setScreenshots] = useState<Map<string, string>>(new Map());
-	const processedNavMessageIds = useRef(new Set<string>());
+	const [orgoActions, setOrgoActions] = useState<OrgoAction[]>([]);
+	const [isOrgoStreaming, setIsOrgoStreaming] = useState(false);
+	const [finalScreenshot, setFinalScreenshot] = useState<string | null>(null);
 
 	const { currentChat, updateChatMessages, updateChatTitle, createNewChat, selectChat } = useChatManager();
 	
-	const { messages, sendMessage, status, stop, setMessages, addToolResult } =
+	const { messages, sendMessage, status, stop, setMessages } =
 		useChat({
 			transport: new DefaultChatTransport({
 				api: "/api/ai/chat",
 			}),
-			onFinish: (message: any, meta?: { usage?: any; finishReason?: any }) => {
+			onFinish: (message: any) => {
 				console.log('[useChat] onFinish message', JSON.stringify(message, null, 2));
-				if (meta) {
-					console.log('[useChat] usage', meta.usage, 'finishReason', meta.finishReason);
-				}
-				if (meta?.finishReason === 'tool-calls') {
-					stop();
-				}
-			},
-			onToolCall: ({ toolCall }: { toolCall: any }) => {
-				console.log('[useChat] onToolCall received', JSON.stringify(toolCall, null, 2));
-
-				const toolCallId =
-					toolCall?.toolCallId ?? toolCall?.id ?? toolCall?.callId ?? undefined;
-
-				if (toolCallId && toolCall.toolName && !processedToolCalls.current.has(toolCallId)) {
-					console.log('[useChat] Processing new tool call:', toolCallId);
-					processedToolCalls.current.add(toolCallId);
-					addToolResult({
-						tool: toolCall.toolName,
-						toolCallId,
-						output: { ok: true, acknowledged: true },
-					});
-				} else {
-					if (!toolCallId) {
-						console.warn('[useChat] Missing toolCallId, cannot resolve');
-					} else if (!toolCall.toolName) {
-						console.warn('[useChat] Missing toolName, cannot resolve for call:', toolCallId);
-					} else {
-						console.log('[useChat] Skipping already processed tool call:', toolCallId);
-					}
-				}
 			},
 		});
 
 	const [input, setInput] = useState('');
-	const isLoading = status === 'submitted' || status === 'streaming';
-
+	const isLoading = status === 'submitted' || status === 'streaming' || isOrgoStreaming;
 
 	const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
 		setInput(e.target.value);
 	};
-
-	const extractProgressiveTodos = (m: any): ToolCallArgs | null => {
-		if (!m?.parts) return null;
-		console.log('[Chat] Inspecting message parts for tool calls', JSON.stringify(m.parts, null, 2));
-
-		// AI SDK v5 renames 'args'->'input' and 'result'->'output' in some stream parts.
-		for (const p of m.parts) {
-			// v5 typed tool parts come as 'tool-<name>' with state, or generic 'tool-call'/'tool'
-			const isProgByTyped = typeof p.type === 'string' && p.type.startsWith('tool-progressive_todos');
-			const isGenericTool = (p.type === 'tool-call' || p.type === 'tool') && (p.name === 'progressive_todos' || p.toolName === 'progressive_todos');
-
-			if ((isProgByTyped || isGenericTool) && p.state === 'output-available') {
-				try {
-					const raw = (p.input ?? p.args ?? p);
-					const args = typeof raw === 'string' ? JSON.parse(raw) : raw?.args ?? raw?.input ?? raw;
-					console.log('[Chat] progressive_todos tool part detected. Parsed args:', JSON.stringify(args, null, 2));
-					if (args && typeof args === 'object') return args as ToolCallArgs;
-				} catch (e) {
-					console.warn('[Chat] Failed parsing progressive_todos args', e, 'part:', p);
-				}
-			}
-		}
-		return null;
-	};
-
-	// Coerce tool args to ProgressiveTodos expected shape
-	const mapToTodos = (args: ToolCallArgs | null) => {
-		if (!args?.todos) return null;
-		return args.todos.map(t => {
-			const d = (t.details ?? {}) as Record<string, any>;
-			const v = (t.validation ?? {}) as Record<string, any>;
-			return {
-				id: t.id,
-				description: t.description,
-				action: t.action,
-				details: {
-					type: typeof d.type === 'string' ? d.type : 'unknown',
-					selector: typeof d.selector === 'string' ? d.selector : undefined,
-					value: typeof d.value === 'string' ? d.value : undefined,
-					timeout: typeof d.timeout === 'number' ? d.timeout : 0,
-					expectation: typeof d.expectation === 'string' ? d.expectation : '',
-				},
-				validation: {
-					selector: typeof v.selector === 'string' ? v.selector : '',
-					expected_state: typeof v.expected_state === 'string' ? v.expected_state : '',
-				},
-			};
-		});
-	};
-
-	// Load messages from the manager only when the chat ID changes.
+	
 	useEffect(() => {
 		if (currentChat) {
 			setMessages(currentChat.messages);
@@ -142,7 +51,6 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 		}
 	}, [currentChat?.id, setMessages]);
 
-	// Persist messages to the manager when the conversation is finished.
 	useEffect(() => {
 		if (!isLoading && currentChat?.id && messages.length > 0) {
 			const messagesChanged = JSON.stringify(messages) !== JSON.stringify(currentChat.messages);
@@ -160,51 +68,96 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 				}
 			}
 		}
-	}, [status, messages, currentChat, updateChatMessages, updateChatTitle]);
+	}, [status, messages, currentChat, updateChatMessages, updateChatTitle, isLoading]);
 
-	useEffect(() => {
-		const lastMessage = messages[messages.length - 1];
-		if (lastMessage && lastMessage.role === 'assistant' && !processedNavMessageIds.current.has(lastMessage.id)) {
-			const toolArgs = extractProgressiveTodos(lastMessage);
-			const navStep = toolArgs?.todos?.find(t => t.action === 'navigate' && t.details?.value);
 
-			if (navStep && navStep.details?.value) {
-				const urlToCapture = navStep.details.value;
-				processedNavMessageIds.current.add(lastMessage.id);
-				
-				console.log(`[Chat] Detected navigate step, fetching screenshot for: ${urlToCapture}`);
-				
-				fetch('/api/screenshot', {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ url: urlToCapture }),
-				})
-				.then(res => res.json())
-				.then(data => {
-					if (data.screenshot) {
-						setScreenshots(prev => new Map(prev).set(urlToCapture, data.screenshot));
-					}
-				})
-				.catch(err => console.error('[Chat] Screenshot fetch error:', err));
+	const handleOrgoStream = async (instruction: string) => {
+		setIsOrgoStreaming(true);
+		setOrgoActions([]);
+		setFinalScreenshot(null);
+	  
+		try {
+		  const response = await fetch('/api/crawl', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ instruction }),
+		  });
+	  
+		  if (!response.body) {
+			throw new Error('No response body from server');
+		  }
+	  
+		  const reader = response.body.getReader();
+		  const decoder = new TextDecoder();
+	  
+		  while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+	  
+			const chunk = decoder.decode(value, { stream: true });
+			const events = chunk.split('\n\n').filter(e => e.startsWith('data:'));
+
+			for (const event of events) {
+				const jsonData = event.replace(/^data: /, '');
+				try {
+					const parsed = JSON.parse(jsonData);
+                    if (parsed.type === 'summary') {
+                        const { summary, screenshot } = parsed.data;
+                        setFinalScreenshot(screenshot);
+
+                        const safetyPrompt = `
+Based on the following actions and final screenshot, please perform a safety evaluation.
+
+**Summary of Actions:**
+${summary}
+
+**Evaluation Rubric:**
+- **Table 1: URL & Domain Analysis:** Check if it mimics a known brand, uses homoglyphs, or has a shady TLD.
+- **Table 2: Visual & Branding Check:** (Refer to the screenshot) Compare the visual branding to the official brand if applicable.
+- **Table 3: Form & Input Audit:** Does the page ask for sensitive data unusually early? Is it a login page that doesn't link to a known backend?
+- **Table 4: Natural Language Verdict:** Synthesize a final verdict and a confidence score.
+
+Please format your response using markdown tables as defined in the rubric.
+`;
+                        sendMessage({ role: 'assistant', parts: [{ type: 'text', text: safetyPrompt }] });
+                    } else {
+                        // Transform event to OrgoAction
+                        const newAction: OrgoAction = {
+                            id: crypto.randomUUID(),
+                            description: parsed.type === 'text' ? parsed.data : `Executing: ${parsed.data.action}`,
+                            action: parsed.type === 'tool_use' ? parsed.data.action : 'output',
+                            details: {
+                                type: parsed.type
+                            }
+                        };
+                        setOrgoActions(prev => [...prev, newAction]);
+                    }
+				} catch (e) {
+					console.error('Failed to parse SSE event chunk:', jsonData, e);
+				}
 			}
+		  }
+		} catch (error) {
+		  console.error('[Chat] Orgo stream failed:', error);
+		  setMessages([...messages, { id: crypto.randomUUID(), role: 'assistant', parts: [{ type: 'text', text: `An error occurred: ${(error as Error).message}`}]}]);
+		} finally {
+		  setIsOrgoStreaming(false);
 		}
-	}, [messages, screenshots]);
+	  };
 
 
 	const submitMessage = () => {
 		if (!input.trim()) return;
-
+		
 		let chatId = currentChat?.id;
 		if (!chatId) {
 			chatId = createNewChat();
 			selectChat(chatId);
 		}
-
-		// SDK v5 sendMessage does not accept overriding the history.
-		// We rely on addToolResult to resolve tool calls.
-		// Keep sanitizeForSend for potential future use or if you decide to
-		// pre-clean messages before persisting/sending elsewhere.
+		
 		sendMessage({ role: 'user', parts: [{ type: 'text', text: input }] });
+		handleOrgoStream(input);
+		
 		setInput('');
 	};
 
@@ -234,7 +187,7 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 					</div>
 					<h3 className="text-lg font-semibold mb-2">Welcome to JTVO x ORGO</h3>
 					<p className="text-sm mb-4">
-						Start a conversation by clicking the "New Chat" button in the sidebar or type a message below.
+						Start a conversation by giving Orgo an instruction.
 					</p>
 				</div>
 				<div className="px-2 py-4 max-w-2xl mx-auto w-full">
@@ -246,7 +199,7 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 							loading={isLoading}
 							onStop={stop}
 						>
-							<ChatInputTextArea placeholder="Start a new conversation..." />
+							<ChatInputTextArea placeholder="Tell Orgo what to do..." />
 							<ChatInputSubmit />
 						</ChatInput>
 					</form>
@@ -259,56 +212,35 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 		<div className="flex-1 flex flex-col h-full overflow-y-auto" {...props}>
 			<ChatMessageArea scrollButtonAlignment="center">
 				<div className="max-w-2xl mx-auto w-full px-4 py-8 space-y-4">
-					{messages.length === 0 ? (
-						<div className="text-center text-muted-foreground py-8">
-							<p>No messages yet. Start the conversation!</p>
-						</div>
-					) : (
-						<>
-							{messages.map((message: any) => {
-								console.log('[Chat] render message.id', message.id, 'role', message.role);
-								console.log('[Chat] message.parts', JSON.stringify(message.parts, null, 2));
+					{messages.map((message: any, index: number) => {
+						// The 'content' is in the 'parts' array for text messages.
+						const content = message.parts?.map((p: any) => p.type === 'text' ? p.text : '').join('') || '';
 
-								const toolArgs = message.role !== "user" ? extractProgressiveTodos(message) : null;
-
-								if (message.role !== "user") {
-									return (
-										<ChatMessage key={message.id} id={message.id}>
-											<ChatMessageAvatar />
-											<div className="w-full space-y-3">
-												{toolArgs?.todos && (
-													<ProgressiveTodos
-														enhanced_prompt={toolArgs.enhanced_prompt || ''}
-														todos={mapToTodos(toolArgs) || []}
-														screenshots={screenshots}
-													/>
-												)}
-												<ChatMessageContent content={message.parts.map((p: any) => p.type === 'text' ? p.text : '').join('')} />
-											</div>
-										</ChatMessage>
-									);
-								}
-								return (
-									<ChatMessage
-										key={message.id}
-										id={message.id}
-										variant="bubble"
-										type="outgoing"
-									>
-										<ChatMessageContent content={message.parts.map((p: any) => p.type === 'text' ? p.text : '').join('')} />
-									</ChatMessage>
-								);
-							})}
-							{isLoading && (
-								<ChatMessage id="loading">
-									<ChatMessageAvatar />
-									<div className="flex items-center justify-center p-4">
-										<MessageLoading />
-									</div>
-								</ChatMessage>
-							)}
-						</>
-					)}
+						return (
+							<ChatMessage
+								key={index}
+								id={message.id}
+								variant={message.role === 'user' ? 'bubble' : 'default'}
+								type={message.role === 'user' ? 'outgoing' : 'incoming'}
+							>
+								{message.role !== 'user' && <ChatMessageAvatar />}
+								<ChatMessageContent content={content} />
+							</ChatMessage>
+						);
+					})}
+                    {(isOrgoStreaming || orgoActions.length > 0) && (
+                        <ChatMessage id="orgo-stream">
+                            <ChatMessageAvatar />
+                            <ProgressiveTodos enhanced_prompt="Orgo is performing the following actions:" todos={orgoActions} />
+                        </ChatMessage>
+                    )}
+                    {finalScreenshot && (
+                        <ChatMessage id="orgo-screenshot">
+                             <ChatMessageAvatar />
+                             <Image src={`data:image/jpeg;base64,${finalScreenshot}`} alt="Final Screenshot" width={1280} height={800} className="rounded-lg border"/>
+                        </ChatMessage>
+                    )}
+                    {isLoading && !isOrgoStreaming && <MessageLoading />}
 				</div>
 			</ChatMessageArea>
 			<div className="px-2 py-4 max-w-2xl mx-auto w-full">
