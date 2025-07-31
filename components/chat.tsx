@@ -16,17 +16,36 @@ import type { ComponentPropsWithoutRef } from "react";
 import { useChatManager } from "@/hooks/use-chat-manager";
 import { useEffect, useState } from "react";
 import { DefaultChatTransport } from 'ai';
+import { ProgressiveTodos } from "@/components/ui/progressive-todos";
+
+type ToolCallArgs = {
+	enhanced_prompt?: string;
+	todos?: Array<{
+		id: string;
+		description: string;
+		action: string;
+		details?: Record<string, any>;
+		validation?: Record<string, any>;
+	}>;
+};
 
 export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 	const { currentChat, updateChatMessages, updateChatTitle, createNewChat, selectChat } = useChatManager();
 	
-	const { messages, sendMessage, status, stop, setMessages } =
+	const { messages, sendMessage, status, stop, setMessages, addToolResult } =
 		useChat({
 			transport: new DefaultChatTransport({
 				api: "/api/ai/chat",
 			}),
-			onFinish: (message) => {
-				console.log("Message finished:", message);
+			onFinish: (message: any, meta?: { usage?: any; finishReason?: any }) => {
+				console.log('[useChat] onFinish message', JSON.stringify(message, null, 2));
+				if (meta) {
+					console.log('[useChat] usage', meta.usage, 'finishReason', meta.finishReason);
+				}
+			},
+			onToolCall: async ({ toolCall }: { toolCall: any }) => {
+				console.log('[useChat] onToolCall received', JSON.stringify(toolCall, null, 2));
+				// For verification only; do not return a result so the call remains a UI event.
 			},
 		});
 
@@ -37,36 +56,82 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 		setInput(e.target.value);
 	};
 
+	const extractProgressiveTodos = (m: any): ToolCallArgs | null => {
+		if (!m?.parts) return null;
+		console.log('[Chat] Inspecting message parts for tool calls', JSON.stringify(m.parts, null, 2));
+
+		// AI SDK v5 renames 'args'->'input' and 'result'->'output' in some stream parts.
+		for (const p of m.parts) {
+			// v5 typed tool parts come as 'tool-<name>' with state, or generic 'tool-call'/'tool'
+			const isProgByTyped = typeof p.type === 'string' && p.type.startsWith('tool-progressive_todos');
+			const isGenericTool = (p.type === 'tool-call' || p.type === 'tool') && (p.name === 'progressive_todos' || p.toolName === 'progressive_todos');
+
+			if (isProgByTyped || isGenericTool) {
+				try {
+					const raw = (p.input ?? p.args ?? p);
+					const args = typeof raw === 'string' ? JSON.parse(raw) : raw?.args ?? raw?.input ?? raw;
+					console.log('[Chat] progressive_todos tool part detected. Parsed args:', JSON.stringify(args, null, 2));
+					if (args && typeof args === 'object') return args as ToolCallArgs;
+				} catch (e) {
+					console.warn('[Chat] Failed parsing progressive_todos args', e, 'part:', p);
+				}
+			}
+		}
+		return null;
+	};
+
+	// Coerce tool args to ProgressiveTodos expected shape
+	const mapToTodos = (args: ToolCallArgs | null) => {
+		if (!args?.todos) return null;
+		return args.todos.map(t => {
+			const d = (t.details ?? {}) as Record<string, any>;
+			const v = (t.validation ?? {}) as Record<string, any>;
+			return {
+				id: t.id,
+				description: t.description,
+				action: t.action,
+				details: {
+					type: typeof d.type === 'string' ? d.type : 'unknown',
+					selector: typeof d.selector === 'string' ? d.selector : undefined,
+					value: typeof d.value === 'string' ? d.value : undefined,
+					timeout: typeof d.timeout === 'number' ? d.timeout : 0,
+					expectation: typeof d.expectation === 'string' ? d.expectation : '',
+				},
+				validation: {
+					selector: typeof v.selector === 'string' ? v.selector : '',
+					expected_state: typeof v.expected_state === 'string' ? v.expected_state : '',
+				},
+			};
+		});
+	};
+
 	// Update chat messages when messages change (but not when currentChat changes)
 	useEffect(() => {
 	  if (currentChat && messages.length > 0) {
-	    // Only update if messages are different from stored messages
 	    const messagesChanged = JSON.stringify(messages) !== JSON.stringify(currentChat.messages);
 	    if (messagesChanged) {
 	      updateChatMessages(currentChat.id, messages);
 	      
-	      // Auto-generate title from first user message if chat title is "New Chat"
 	      if (currentChat.title === "New Chat") {
 	        const firstUserMessage = messages.find(m => m.role === "user");
 	        if (firstUserMessage) {
-	          const content = firstUserMessage.parts.map(p => p.type === 'text' ? p.text : '').join('');
+	          const content = firstUserMessage.parts.map((p: any) => p.type === 'text' ? p.text : '').join('');
 	          const title = content.slice(0, 50) + (content.length > 50 ? "..." : "");
 	          updateChatTitle(currentChat.id, title);
 	        }
 	      }
 	    }
 	  }
-	}, [messages, currentChat?.id]); // Add currentChat.id to prevent cross-contamination
+	}, [messages, currentChat?.id]);
 
 	// Load current chat messages when chat changes
 	useEffect(() => {
 	  if (currentChat) {
-	    // Always set messages when switching chats to ensure proper loading
 	    setMessages(currentChat.messages);
 	  } else {
 	    setMessages([]);
 	  }
-	}, [currentChat?.id, setMessages]); // Include setMessages as it's stable
+	}, [currentChat?.id, setMessages]);
 
 	const submitMessage = () => {
 		if (!input.trim()) return;
@@ -89,7 +154,6 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 		submitMessage();
 	};
 
-	// Show empty state when no chat is selected
 	if (!currentChat) {
 		return (
 			<div className="flex-1 flex flex-col h-full items-center justify-center" {...props}>
@@ -142,12 +206,25 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 						</div>
 					) : (
 						<>
-							{messages.map((message) => {
+							{messages.map((message: any) => {
+								console.log('[Chat] render message.id', message.id, 'role', message.role);
+								console.log('[Chat] message.parts', JSON.stringify(message.parts, null, 2));
+
+								const toolArgs = message.role !== "user" ? extractProgressiveTodos(message) : null;
+
 								if (message.role !== "user") {
 									return (
 										<ChatMessage key={message.id} id={message.id}>
 											<ChatMessageAvatar />
-											<ChatMessageContent content={message.parts.map(p => p.type === 'text' ? p.text : '').join('')} />
+											<div className="w-full space-y-3">
+												{toolArgs?.todos && (
+													<ProgressiveTodos
+														enhanced_prompt={toolArgs.enhanced_prompt || ''}
+														todos={mapToTodos(toolArgs) || []}
+													/>
+												)}
+												<ChatMessageContent content={message.parts.map((p: any) => p.type === 'text' ? p.text : '').join('')} />
+											</div>
 										</ChatMessage>
 									);
 								}
@@ -158,7 +235,7 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 										variant="bubble"
 										type="outgoing"
 									>
-										<ChatMessageContent content={message.parts.map(p => p.type === 'text' ? p.text : '').join('')} />
+										<ChatMessageContent content={message.parts.map((p: any) => p.type === 'text' ? p.text : '').join('')} />
 									</ChatMessage>
 								);
 							})}
