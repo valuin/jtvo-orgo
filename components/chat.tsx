@@ -16,12 +16,13 @@ import type { ComponentPropsWithoutRef } from "react";
 import { useChatManager } from "@/hooks/use-chat-manager";
 import { useEffect, useState } from "react";
 import { DefaultChatTransport } from 'ai';
-import { OrgoAction, ProgressiveTodos } from "@/components/ui/progressive-todos";
+import { OrgoStream } from "@/components/ui/orgo-stream";
 import Image from "next/image";
 
 export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
-	const [orgoActions, setOrgoActions] = useState<OrgoAction[]>([]);
+	const [orgoEvents, setOrgoEvents] = useState<any[]>([]);
 	const [isOrgoStreaming, setIsOrgoStreaming] = useState(false);
+	const [initialScreenshot, setInitialScreenshot] = useState<string | null>(null);
 	const [finalScreenshot, setFinalScreenshot] = useState<string | null>(null);
 
 	const { currentChat, updateChatMessages, updateChatTitle, createNewChat, selectChat } = useChatManager();
@@ -73,7 +74,8 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 
 	const handleOrgoStream = async (instruction: string) => {
 		setIsOrgoStreaming(true);
-		setOrgoActions([]);
+		setOrgoEvents([]);
+		setInitialScreenshot(null);
 		setFinalScreenshot(null);
 	  
 		try {
@@ -101,36 +103,32 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 				const jsonData = event.replace(/^data: /, '');
 				try {
 					const parsed = JSON.parse(jsonData);
-                    if (parsed.type === 'summary') {
-                        const { summary, screenshot } = parsed.data;
-                        setFinalScreenshot(screenshot);
-
+                    if (parsed.type === 'initial_screenshot') {
+                        setInitialScreenshot(parsed.data.screenshot);
+                    } else if (parsed.type === 'final_payload') {
+                        const { summary, finalScreenshot, fullClaudeOutput } = parsed.data;
+                        setFinalScreenshot(finalScreenshot);
+                        
                         const safetyPrompt = `
-Based on the following actions and final screenshot, please perform a safety evaluation.
+Based on the following session data, please perform a detailed website safety evaluation.
 
-**Summary of Actions:**
+**Summary of Automated Actions:**
 ${summary}
+
+**Full AI Narrative:**
+${fullClaudeOutput}
 
 **Evaluation Rubric:**
 - **Table 1: URL & Domain Analysis:** Check if it mimics a known brand, uses homoglyphs, or has a shady TLD.
-- **Table 2: Visual & Branding Check:** (Refer to the screenshot) Compare the visual branding to the official brand if applicable.
+- **Table 2: Visual & Branding Check:** (Refer to the final screenshot) Compare the visual branding to the official brand if applicable.
 - **Table 3: Form & Input Audit:** Does the page ask for sensitive data unusually early? Is it a login page that doesn't link to a known backend?
-- **Table 4: Natural Language Verdict:** Synthesize a final verdict and a confidence score.
+- **Table 4: Natural Language Verdict:** Synthesize a final verdict and a confidence score based on all available information.
 
 Please format your response using markdown tables as defined in the rubric.
 `;
                         sendMessage({ role: 'assistant', parts: [{ type: 'text', text: safetyPrompt }] });
                     } else {
-                        // Transform event to OrgoAction
-                        const newAction: OrgoAction = {
-                            id: crypto.randomUUID(),
-                            description: parsed.type === 'text' ? parsed.data : `Executing: ${parsed.data.action}`,
-                            action: parsed.type === 'tool_use' ? parsed.data.action : 'output',
-                            details: {
-                                type: parsed.type
-                            }
-                        };
-                        setOrgoActions(prev => [...prev, newAction]);
+                        setOrgoEvents(prev => [...prev, parsed]);
                     }
 				} catch (e) {
 					console.error('Failed to parse SSE event chunk:', jsonData, e);
@@ -228,16 +226,14 @@ Please format your response using markdown tables as defined in the rubric.
 							</ChatMessage>
 						);
 					})}
-                    {(isOrgoStreaming || orgoActions.length > 0) && (
+                    {(isOrgoStreaming || orgoEvents.length > 0) && (
                         <ChatMessage id="orgo-stream">
                             <ChatMessageAvatar />
-                            <ProgressiveTodos enhanced_prompt="Orgo is performing the following actions:" todos={orgoActions} />
-                        </ChatMessage>
-                    )}
-                    {finalScreenshot && (
-                        <ChatMessage id="orgo-screenshot">
-                             <ChatMessageAvatar />
-                             <Image src={`data:image/jpeg;base64,${finalScreenshot}`} alt="Final Screenshot" width={1280} height={800} className="rounded-lg border"/>
+                            <OrgoStream
+                                events={orgoEvents}
+                                initialScreenshot={initialScreenshot}
+                                finalScreenshot={finalScreenshot}
+                            />
                         </ChatMessage>
                     )}
                     {isLoading && !isOrgoStreaming && <MessageLoading />}

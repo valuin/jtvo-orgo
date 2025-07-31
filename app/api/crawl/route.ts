@@ -1,11 +1,23 @@
 import { z } from 'zod';
 import { Computer } from 'orgo';
+import chromium from '@sparticuz/chromium';
+import puppeteer from 'puppeteer-extra';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+
+const stealth = StealthPlugin()
+stealth.onBrowser = async () => {};
+puppeteer.use(stealth);
 
 const crawlSchema = z.object({
   instruction: z.string(),
   model: z.string().optional().default("claude-sonnet-4-20250514"),
 });
 
+const extractUrl = (text: string): string | null => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const matches = text.match(urlRegex);
+    return matches ? matches[0] : null;
+};
 
 export async function POST(req: Request) {
   try {
@@ -26,14 +38,34 @@ export async function POST(req: Request) {
     const stream = new ReadableStream({
       async start(controller) {
         let computer: Computer | null = null;
+        let browser: any = null;
         const actionLog: any[] = [];
+        const claudeLog: string[] = [];
 
         try {
+            const url = extractUrl(instruction);
+            if(url) {
+                const launchOptions = process.env.NODE_ENV === 'production'
+                ? {
+                    args: chromium.args,
+                    executablePath: await chromium.executablePath(),
+                    headless: true,
+                  }
+                : { headless: true };
+                
+                browser = await puppeteer.launch(launchOptions);
+                const page = await browser.newPage();
+                await page.goto(url, { waitUntil: 'networkidle2' });
+                const screenshot = await page.screenshot({ encoding: 'base64' });
+                controller.enqueue(`data: ${JSON.stringify({ type: 'initial_screenshot', data: { screenshot } })}\n\n`);
+                await browser.close();
+            }
+
           computer = await Computer.create({ apiKey: ORGO_API_KEY });
 
           const progressCallback = (event_type: string, event_data: any) => {
-            // Only stream 'text' and 'tool_use' events to the client
-            if (event_type === 'text' || event_type === 'tool_use') {
+            if (event_type === 'text') {
+              claudeLog.push(event_data);
               const payload = JSON.stringify({ type: event_type, data: event_data });
               controller.enqueue(`data: ${payload}\n\n`);
             }
@@ -55,14 +87,16 @@ export async function POST(req: Request) {
           });
 
           const summary = `Orgo performed the following actions:\n` + actionLog.map(a => `- ${a.action}: ${JSON.stringify(a)}`).join('\n');
-          const imageData = await computer.screenshotBase64();
+          const finalScreenshot = await computer.screenshotBase64();
+          const fullClaudeOutput = claudeLog.join('\n');
 
           const finalPayload = {
             summary,
-            screenshot: imageData,
+            finalScreenshot,
+            fullClaudeOutput,
           };
-
-          controller.enqueue(`data: ${JSON.stringify({ type: 'summary', data: finalPayload })}\n\n`);
+          
+          controller.enqueue(`data: ${JSON.stringify({ type: 'final_payload', data: finalPayload })}\n\n`);
           
         } catch (error) {
           console.error('[Crawl API] Error during Orgo operation:', error);
@@ -71,6 +105,9 @@ export async function POST(req: Request) {
         } finally {
             if (computer) {
                 await computer.destroy();
+            }
+            if(browser) {
+                await browser.close();
             }
             controller.close();
         }

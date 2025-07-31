@@ -7,7 +7,8 @@ import Image from 'next/image';
 
 interface OrgoStreamProps {
   events: any[];
-  screenshot: string | null;
+  initialScreenshot: string | null;
+  finalScreenshot: string | null;
   className?: string;
 }
 
@@ -15,10 +16,8 @@ const getEventIcon = (type: string) => {
     switch (type) {
         case 'text':
             return <MessageCircle className="w-5 h-5 text-blue-500" />;
-        case 'tool_use':
-            return <HardHat className="w-5 h-5 text-amber-500" />;
-        case 'thinking':
-            return <BrainCircuit className="w-5 h-5 text-purple-500" />;
+        case 'error':
+             return <HardHat className="w-5 h-5 text-red-500" />;
         default:
             return null;
     }
@@ -27,11 +26,7 @@ const getEventIcon = (type: string) => {
 const getEventTitle = (type: string) => {
     switch (type) {
         case 'text':
-            return "Claude's Output";
-        case 'tool_use':
-            return "Executing Action";
-        case 'thinking':
-            return "Thinking...";
+            return "AI Agent's Output";
         case 'error':
             return "Error";
         default:
@@ -39,10 +34,26 @@ const getEventTitle = (type: string) => {
     }
 }
 
-export function OrgoStream({ events, screenshot, className }: OrgoStreamProps) {
+export function OrgoStream({ events, initialScreenshot, finalScreenshot, className }: OrgoStreamProps) {
   return (
     <div className={cn("w-full space-y-4", className)}>
-        {events.map((event, index) => {
+        {initialScreenshot && (
+             <Card>
+                <CardHeader className="bg-muted/50 p-3">
+                    <CardTitle className="text-sm font-medium">Initial Page View</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                    <Image
+                        src={`data:image/jpeg;base64,${initialScreenshot}`}
+                        alt="Initial screenshot from target URL"
+                        width={1280}
+                        height={800}
+                        className="w-full h-auto"
+                    />
+                </CardContent>
+            </Card>
+        )}
+        {events.filter(event => event.type === 'text' || event.type === 'error').map((event, index) => {
              const isError = event.type === 'error';
              return (
                 <Card key={index} className={cn("overflow-hidden", { 'border-red-500 bg-red-50 text-red-900': isError })}>
@@ -53,8 +64,6 @@ export function OrgoStream({ events, screenshot, className }: OrgoStreamProps) {
                     <CardContent className="p-4 text-sm">
                         {isError ? (
                            <pre className="whitespace-pre-wrap font-mono text-xs">{JSON.stringify(event.data, null, 2)}</pre>
-                        ) : event.type === 'tool_use' ? (
-                            <pre className="whitespace-pre-wrap font-mono text-xs">{`Action: ${event.data.action}`}</pre>
                         ) : typeof event.data === 'string' ? (
                             <p>{event.data}</p>
                         ) : (
@@ -64,14 +73,14 @@ export function OrgoStream({ events, screenshot, className }: OrgoStreamProps) {
                 </Card>
              )
         })}
-        {screenshot && (
+        {finalScreenshot && (
              <Card>
                 <CardHeader className="bg-muted/50 p-3">
                     <CardTitle className="text-sm font-medium">Final Screenshot</CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
                     <Image
-                        src={`data:image/jpeg;base64,${screenshot}`}
+                        src={`data:image/jpeg;base64,${finalScreenshot}`}
                         alt="Final Screenshot from Orgo session"
                         width={1280}
                         height={800}
