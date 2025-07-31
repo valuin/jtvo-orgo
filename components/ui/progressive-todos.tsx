@@ -25,9 +25,10 @@ interface Todo {
 interface ProgressiveTodosProps {
   enhanced_prompt: string;
   todos: Todo[];
+  screenshots?: Map<string, string>;
 }
 
-export function ProgressiveTodos({ enhanced_prompt, todos }: ProgressiveTodosProps) {
+export function ProgressiveTodos({ enhanced_prompt, todos, screenshots }: ProgressiveTodosProps) {
   const [completedTodos, setCompletedTodos] = useState<Set<string>>(new Set());
   const [isOpen, setIsOpen] = useState(true);
 
@@ -58,19 +59,19 @@ export function ProgressiveTodos({ enhanced_prompt, todos }: ProgressiveTodosPro
 
   return (
     <div className="mb-4 border border-border rounded-lg p-2">
-      <Disclosure 
-        open={isOpen} 
+      <Disclosure
+        open={isOpen}
         onOpenChange={setIsOpen}
         className="w-full"
       >
         <DisclosureTrigger>
           <div className="flex items-center justify-between w-full p-2 text-left hover:bg-muted/50 rounded-md transition-colors">
             <div className="flex items-center gap-2">
-              <ChevronRight 
+              <ChevronRight
                 className={cn(
                   "h-4 w-4 transition-transform duration-200",
                   isOpen && "rotate-90"
-                )} 
+                )}
               />
               <span className="font-medium text-sm">
                 Browser Automation Tasks ({completedTodos.size}/{todos.length})
@@ -80,10 +81,10 @@ export function ProgressiveTodos({ enhanced_prompt, todos }: ProgressiveTodosPro
               )}
             </div>
             <div className="flex-1 mx-4 bg-border h-px">
-              <div 
+              <div
                 className="bg-green-500 h-px transition-all duration-300 ease-out"
-                style={{ 
-                  width: `${(completedTodos.size / todos.length) * 100}%` 
+                style={{
+                  width: `${(completedTodos.size / todos.length) * 100}%`
                 }}
               />
             </div>
@@ -146,6 +147,21 @@ export function ProgressiveTodos({ enhanced_prompt, todos }: ProgressiveTodosPro
           </div>
         </DisclosureContent>
       </Disclosure>
+      
+      {screenshots && screenshots.size > 0 && (
+        <div className="mt-4 p-2 border-t border-border">
+          {Array.from(screenshots.entries()).map(([url, base64]) => (
+            <div key={url} className="mb-2">
+              <p className="text-xs font-mono text-muted-foreground mb-1">{url}</p>
+              <img
+                src={`data:image/png;base64,${base64}`}
+                alt={`Screenshot of ${url}`}
+                className="rounded-md border border-border"
+              />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

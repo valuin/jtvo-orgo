@@ -31,6 +31,8 @@ type ToolCallArgs = {
 
 export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 	const processedToolCalls = useRef(new Set<string>());
+	const [screenshots, setScreenshots] = useState<Map<string, string>>(new Map());
+	const processedNavMessageIds = useRef(new Set<string>());
 
 	const { currentChat, updateChatMessages, updateChatTitle, createNewChat, selectChat } = useChatManager();
 	
@@ -92,7 +94,7 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 			const isProgByTyped = typeof p.type === 'string' && p.type.startsWith('tool-progressive_todos');
 			const isGenericTool = (p.type === 'tool-call' || p.type === 'tool') && (p.name === 'progressive_todos' || p.toolName === 'progressive_todos');
 
-			if (isProgByTyped || isGenericTool) {
+			if ((isProgByTyped || isGenericTool) && p.state === 'output-available') {
 				try {
 					const raw = (p.input ?? p.args ?? p);
 					const args = typeof raw === 'string' ? JSON.parse(raw) : raw?.args ?? raw?.input ?? raw;
@@ -160,21 +162,34 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 		}
 	}, [status, messages, currentChat, updateChatMessages, updateChatTitle]);
 
-	// Remove protocol-specific parts so the API doesn't see prior tool/meta parts.
-	const sanitizeForSend = (msgs: any[]) =>
-		msgs.map(m => ({
-			...m,
-			parts: (m.parts || []).filter((p: any) => {
-				if (!p?.type) return true;
-				const t = String(p.type);
-				return !(
-					t === 'tool' ||
-					t === 'tool-call' ||
-					t === 'step-start' ||
-					t.startsWith('tool-')
-				);
-			})
-		}));
+	useEffect(() => {
+		const lastMessage = messages[messages.length - 1];
+		if (lastMessage && lastMessage.role === 'assistant' && !processedNavMessageIds.current.has(lastMessage.id)) {
+			const toolArgs = extractProgressiveTodos(lastMessage);
+			const navStep = toolArgs?.todos?.find(t => t.action === 'navigate' && t.details?.value);
+
+			if (navStep && navStep.details?.value) {
+				const urlToCapture = navStep.details.value;
+				processedNavMessageIds.current.add(lastMessage.id);
+				
+				console.log(`[Chat] Detected navigate step, fetching screenshot for: ${urlToCapture}`);
+				
+				fetch('/api/screenshot', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ url: urlToCapture }),
+				})
+				.then(res => res.json())
+				.then(data => {
+					if (data.screenshot) {
+						setScreenshots(prev => new Map(prev).set(urlToCapture, data.screenshot));
+					}
+				})
+				.catch(err => console.error('[Chat] Screenshot fetch error:', err));
+			}
+		}
+	}, [messages, screenshots]);
+
 
 	const submitMessage = () => {
 		if (!input.trim()) return;
@@ -265,6 +280,7 @@ export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
 													<ProgressiveTodos
 														enhanced_prompt={toolArgs.enhanced_prompt || ''}
 														todos={mapToTodos(toolArgs) || []}
+														screenshots={screenshots}
 													/>
 												)}
 												<ChatMessageContent content={message.parts.map((p: any) => p.type === 'text' ? p.text : '').join('')} />

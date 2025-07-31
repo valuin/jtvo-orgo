@@ -1,6 +1,7 @@
 import { convertToModelMessages, streamText, tool } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
 import { z } from 'zod';
+import puppeteer from 'puppeteer';
 
 const openai = createOpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -11,18 +12,7 @@ export async function POST(req: Request) {
     const { messages } = await req.json();
     console.log('[API] Received request with messages:', JSON.stringify(messages, null, 2));
 
-    const systemMessage = `You are a helpful assistant for browser automation tasks.
-
-CRITICAL: When producing or updating a plan you MUST call the tool "progressive_todos" to transmit the plan JSON. Do not inline JSON in assistant text. If a plan is relevant at any point, call the tool FIRST, then optionally continue with normal assistant text. Prefer incremental tool calls as steps evolve.
-
-Tool payload shape:
-- enhanced_prompt: string
-- todos: array of items:
-  - id: string
-  - description: string
-  - action: string
-  - details: object (e.g. { type, selector?, value?, timeout?, expectation? })
-  - validation: object (e.g. { selector?, expected_state? })`;
+    const systemMessage = `You are a helpful assistant for browser automation tasks. Your primary job is to create a plan to accomplish the user's goal. Call the "progressive_todos" tool to output this plan.`;
 
     console.log('[API] Calling streamText...');
     // Sanitize messages to remove client-side state before sending to the model
@@ -39,7 +29,7 @@ Tool payload shape:
       toolChoice: 'auto',
       tools: {
         progressive_todos: tool({
-          description: 'Emit or update a progressive todo plan for the current task',
+          description: 'Emit or update a progressive todo plan for the browser automation task.',
           inputSchema: z.object({
             enhanced_prompt: z.string().describe('Concise summary of the overall goal or improved prompt'),
             todos: z.array(z.object({
@@ -60,6 +50,27 @@ Tool payload shape:
             })),
           }),
         }),
+        take_screenshot: tool({
+          description: 'Take a screenshot of a given URL.',
+          inputSchema: z.object({
+            url: z.string().url().describe('The URL to take a screenshot of.'),
+          }),
+          execute: async ({ url }) => {
+            try {
+              console.log(`[Puppeteer] Launching for URL: ${url}`);
+              const browser = await puppeteer.launch({ headless: true });
+              const page = await browser.newPage();
+              await page.goto(url, { waitUntil: 'networkidle2' });
+              const screenshot = await page.screenshot({ encoding: 'base64' });
+              await browser.close();
+              console.log(`[Puppeteer] Screenshot captured for ${url}`);
+              return { success: true, screenshot, url };
+            } catch (e: any) {
+              console.error(`[Puppeteer] Error taking screenshot for ${url}:`, e);
+              return { success: false, error: e.message };
+            }
+          },
+        }),
       },
       onFinish: (result) => {
         console.log('[API] onFinish triggered, reason:', result.finishReason);
@@ -79,4 +90,3 @@ Tool payload shape:
     });
   }
 }
-
