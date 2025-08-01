@@ -2,7 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { MessageCircle, HardHat, BrainCircuit } from 'lucide-react';
+import { MessageCircle, HardHat } from 'lucide-react';
 import Image from 'next/image';
 
 interface OrgoStreamProps {
@@ -42,14 +42,14 @@ export function OrgoStream({ events, initialScreenshot, finalScreenshot, classNa
                 <CardHeader className="bg-muted/50 p-3">
                     <CardTitle className="text-sm font-medium">Initial Page View</CardTitle>
                 </CardHeader>
-                <CardContent className="p-0">
-                    <Image
-                        src={`data:image/jpeg;base64,${initialScreenshot}`}
-                        alt="Initial screenshot from target URL"
-                        width={1280}
-                        height={800}
-                        className="w-full h-auto"
-                    />
+                <CardContent className="p-0 aspect-[16/10] bg-muted">
+                	<Image
+                		src={`data:image/jpeg;base64,${initialScreenshot}`}
+                		alt="Initial screenshot from target URL"
+                		width={1280}
+                		height={800}
+                		className="w-full h-full object-cover"
+                	/>
                 </CardContent>
             </Card>
         )}
@@ -78,14 +78,14 @@ export function OrgoStream({ events, initialScreenshot, finalScreenshot, classNa
                 <CardHeader className="bg-muted/50 p-3">
                     <CardTitle className="text-sm font-medium">Final Screenshot</CardTitle>
                 </CardHeader>
-                <CardContent className="p-0">
-                    <Image
-                        src={`data:image/jpeg;base64,${finalScreenshot}`}
-                        alt="Final Screenshot from Orgo session"
-                        width={1280}
-                        height={800}
-                        className="w-full h-auto"
-                    />
+                <CardContent className="p-0 aspect-[16/10] bg-muted">
+                	<Image
+                		src={`data:image/jpeg;base64,${finalScreenshot}`}
+                		alt="Final Screenshot from Orgo session"
+                		width={1280}
+                		height={800}
+                		className="w-full h-full object-cover"
+                	/>
                 </CardContent>
             </Card>
         )}

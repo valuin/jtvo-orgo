@@ -17,6 +17,8 @@ import { useChatManager } from "@/hooks/use-chat-manager";
 import { useEffect, useState } from "react";
 import { DefaultChatTransport } from 'ai';
 import { OrgoStream } from "@/components/ui/orgo-stream";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import Image from "next/image";
 
 export function Chat({ className, ...props }: ComponentPropsWithoutRef<"div">) {
@@ -226,17 +228,32 @@ Please format your response using markdown tables as defined in the rubric.
 							</ChatMessage>
 						);
 					})}
-                    {(isOrgoStreaming || orgoEvents.length > 0) && (
-                        <ChatMessage id="orgo-stream">
-                            <ChatMessageAvatar />
-                            <OrgoStream
-                                events={orgoEvents}
-                                initialScreenshot={initialScreenshot}
-                                finalScreenshot={finalScreenshot}
-                            />
-                        </ChatMessage>
+                    {isOrgoStreaming && !initialScreenshot && orgoEvents.length === 0 && (
+                    	<ChatMessage id="orgo-stream-skeleton">
+                    			<ChatMessageAvatar />
+                    			<div className="w-full space-y-4">
+                    				<Card>
+                    					<CardHeader className="bg-muted/50 p-3">
+                    							<Skeleton className="h-5 w-48" />
+                    					</CardHeader>
+                    					<CardContent className="p-0">
+                    							<Skeleton className="h-[420px] w-full" />
+                    					</CardContent>
+                    				</Card>
+                    			</div>
+                    	</ChatMessage>
                     )}
-                    {isLoading && !isOrgoStreaming && <MessageLoading />}
+                    {(orgoEvents.length > 0 || initialScreenshot || finalScreenshot) && (
+                    	<ChatMessage id="orgo-stream">
+                    			<ChatMessageAvatar />
+                    			<OrgoStream
+                    				events={orgoEvents}
+                    				initialScreenshot={initialScreenshot}
+                    				finalScreenshot={finalScreenshot}
+                    			/>
+                    	</ChatMessage>
+                    )}
+                    {isLoading && !isOrgoStreaming && !initialScreenshot && orgoEvents.length === 0 && <MessageLoading />}
 				</div>
 			</ChatMessageArea>
 			<div className="px-2 py-4 max-w-2xl mx-auto w-full">
